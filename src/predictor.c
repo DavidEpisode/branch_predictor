@@ -11,9 +11,9 @@
 //
 // TODO:Student Information
 //
-const char *studentName = "NAME";
-const char *studentID   = "PID";
-const char *email       = "EMAIL";
+const char *studentName = "Xinming Zhang";
+const char *studentID   = "A53283531";
+const char *email       = "xiz015@ucsd.edu";
 
 //------------------------------------//
 //      Predictor Configuration       //
@@ -36,7 +36,8 @@ int verbose;
 //
 //TODO: Add your own Branch Predictor data structures here
 //
-
+const int bhb_size = 1024;
+int bhb[bhb_size];
 
 //------------------------------------//
 //        Predictor Functions         //
@@ -55,7 +56,10 @@ tournament_init(){
 // custom
 void
 custom_init(){
-
+  for(int i = 0; i < bhb_size; ++i)
+  {
+    bhb[i] = SN;
+  }
 }
 
 // Initialize the predictor
@@ -103,6 +107,7 @@ make_prediction(uint32_t pc)
     case GSHARE:
     case TOURNAMENT:
     case CUSTOM:
+      return bhb[pc % bhb_size]/2;
     default:
       break;
   }
@@ -121,5 +126,20 @@ train_predictor(uint32_t pc, uint8_t outcome)
   //
   //TODO: Implement Predictor training
   //
+  int index = pc % bhb_size;
+  switch (bhb[index])
+  {
+  case SN:
+    bhb[index] = outcome ? WN : SN;
+    break;
+  case WN:
+    bhb[index] = outcome ? WT : SN;
+  case WT:
+    bhb[index] = outcome ? ST : WN;
+  case ST:
+    bhb[index] = outcome ? ST : WT;
+  default:
+    break;
+  }
   return;
 }
