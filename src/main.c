@@ -85,6 +85,7 @@ main(int argc, char *argv[])
   bpType = STATIC;
   verbose = 0;
 
+
   // Process cmdline Arguments
   for (int i = 1; i < argc; ++i) {
     if (!strcmp(argv[i],"--help")) {

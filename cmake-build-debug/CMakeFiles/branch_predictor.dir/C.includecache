@@ -1,0 +1,32 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/Users/xinmingzhang/Course/Computer Architecture/branch predictor/src/main.c
+stdio.h
+-
+stdlib.h
+-
+string.h
+-
+predictor.h
+/Users/xinmingzhang/Course/Computer Architecture/branch predictor/src/predictor.h
+
+/Users/xinmingzhang/Course/Computer Architecture/branch predictor/src/predictor.c
+stdio.h
+-
+math.h
+-
+predictor.h
+/Users/xinmingzhang/Course/Computer Architecture/branch predictor/src/predictor.h
+
+/Users/xinmingzhang/Course/Computer Architecture/branch predictor/src/predictor.h
+stdint.h
+-
+stdlib.h
+-
+

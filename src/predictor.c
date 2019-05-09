@@ -6,6 +6,7 @@
 //  described in the README                               //
 //========================================================//
 #include <stdio.h>
+#include <math.h>
 #include "predictor.h"
 
 //
@@ -36,29 +37,99 @@ int verbose;
 //
 //TODO: Add your own Branch Predictor data structures here
 //
-const int bhb_size = 1024;
-int bhb[bhb_size];
+int buffer_size;
+uint8_t* branch_history_buffer;
+uint32_t branch_history_register;
 
 //------------------------------------//
 //        Predictor Functions         //
 //------------------------------------//
 
+// two bit saturation counter update
+void two_bit_buffer_update(uint32_t pc, uint8_t outcome)
+{
+  int buffer_counter = pc % buffer_size;
+  switch (branch_history_buffer[buffer_counter])
+  {
+  case SN:
+    branch_history_buffer[buffer_counter] = outcome ? WN : SN;
+    break;
+  case WN:
+    branch_history_buffer[buffer_counter] = outcome ? WT : SN;
+  case WT:
+    branch_history_buffer[buffer_counter] = outcome ? ST : WN;
+  case ST:
+    branch_history_buffer[buffer_counter] = outcome ? ST : WT;
+  default:
+    break;
+  }
+}
 // gshare 
 void 
 gshare_init(){
+  buffer_size = pow(2, ghistoryBits);
+  branch_history_buffer = (uint8_t*) malloc(buffer_size*sizeof(uint8_t));
+  branch_history_register &= 0 << ghistoryBits;
+  for(int i = 0; i < buffer_size; ++i)
+  {
+    branch_history_buffer[i] = SN;
+  }
+}
 
+uint8_t gshare_predict(uint32_t pc)
+{
+  uint32_t buffer_counter = pc ^ branch_history_register;
+  return branch_history_buffer[buffer_counter % buffer_size]/2;
+}
+
+void gshare_train(uint32_t pc, uint8_t outcome)
+{
+  uint32_t buffer_counter = pc ^ branch_history_register;
+  two_bit_buffer_update(buffer_counter, outcome);
+  branch_history_register <<= 1;
+  branch_history_register |= outcome;
 }
 // tournament
 void
 tournament_init(){
+  return;
+}
+
+void
+tournament_train(uint32_t pc, uint8_t outcome)
+{
 
 }
 // custom
 void
 custom_init(){
-  for(int i = 0; i < bhb_size; ++i)
+  int bit_number = 2;
+  buffer_size = 4;
+  branch_history_buffer = (uint8_t*)malloc(buffer_size*sizeof(uint8_t));
+  printf("%d", buffer_size);
+  for(int i = 0; i < buffer_size; ++i)
   {
-    bhb[i] = SN;
+    branch_history_buffer[i] = SN;
+  }
+}
+
+void
+custom_train(uint32_t pc, uint8_t outcome)
+{
+  int buffer_counter = pc % buffer_size;
+  switch (branch_history_buffer[buffer_counter])
+  {
+  case SN:
+    branch_history_buffer[buffer_counter] = outcome ? WN : SN;
+    break;
+  case WN:
+    branch_history_buffer[buffer_counter] = outcome ? WT : SN;
+  case WT:
+    branch_history_buffer[buffer_counter] = outcome ? ST : WN;
+  case ST:
+    branch_history_buffer[buffer_counter] = outcome ? ST : WT;
+  default:
+    break;
   }
 }
 
@@ -105,9 +176,11 @@ make_prediction(uint32_t pc)
     case STATIC:
       return TAKEN;
     case GSHARE:
+      return gshare_predict(pc);
     case TOURNAMENT:
+      break;
     case CUSTOM:
-      return bhb[pc % bhb_size]/2;
+      return branch_history_buffer[pc % buffer_size]/2;
     default:
       break;
   }
@@ -126,20 +199,20 @@ train_predictor(uint32_t pc, uint8_t outcome)
   //
   //TODO: Implement Predictor training
   //
-  int index = pc % bhb_size;
-  switch (bhb[index])
-  {
-  case SN:
-    bhb[index] = outcome ? WN : SN;
-    break;
-  case WN:
-    bhb[index] = outcome ? WT : SN;
-  case WT:
-    bhb[index] = outcome ? ST : WN;
-  case ST:
-    bhb[index] = outcome ? ST : WT;
-  default:
-    break;
+  switch (bpType){
+    case STATIC:
+      return;
+    case GSHARE:
+      gshare_train(pc, outcome);
+      return;
+    case TOURNAMENT:
+      tournament_train(pc, outcome);
+      return;
+    case CUSTOM:
+      custom_train(pc, outcome);
+      return;
+    default:
+      break;
   }
   return;
 }
