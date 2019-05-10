@@ -137,9 +137,9 @@ void tournament_train(uint32_t pc, uint8_t outcome)
 // custom
 void custom_init(){
     // combination of gshare and simple BHT
-    ghistoryBits = 13;
-    lhistoryBits = 13;
-    pcIndexBits = 13;
+    ghistoryBits = 10;
+    lhistoryBits = 10;
+    pcIndexBits = 10;
     branch_history_register = 0;
 
     chooser_size = (int)pow(2, ghistoryBits);
@@ -153,13 +153,13 @@ void custom_init(){
     pc_buffer = (uint32_t*) malloc(pc_buffer_size*sizeof(uint32_t));
 
     for (int i = 0; i < chooser_size; ++i)
-        chooser_buffer[i] = 3;
+        chooser_buffer[i] = 2;
 
     for (int i = 0; i < g_buffer_size; ++i)
-        g_buffer[i] = SN;
+        g_buffer[i] = WN;
 
     for (int i = 0; i < l_buffer_size; ++i)
-        l_buffer[i] = SN;
+        l_buffer[i] = WN;
 
     for (int i = 0; i < pc_buffer_size; ++i)
         pc_buffer[i] = 0;
@@ -188,11 +188,14 @@ void custom_train(uint32_t pc, uint8_t outcome)
 
     uint32_t g_buffer_counter = pc ^ branch_history_register;
     uint32_t p1 = g_buffer[g_buffer_counter % g_buffer_size];
+
     uint32_t l_buffer_counter = pc_buffer[pc % pc_buffer_size];
     uint32_t p2 = l_buffer[l_buffer_counter % l_buffer_size];
-    int p1c = (p1 == outcome);
-    int p2c = (p2 == outcome);
+
+    int p1c = ((p1/2) == outcome);
+    int p2c = ((p2/2) == outcome);
     int action = p1c - p2c;
+
     uint32_t choice = chooser_buffer[g_buffer_counter % chooser_size];
     switch(action){
         case -1:
