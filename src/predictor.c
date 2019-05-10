@@ -38,8 +38,22 @@ int verbose;
 //TODO: Add your own Branch Predictor data structures here
 //
 int buffer_size;
-int* branch_history_buffer;
+uint32_t* branch_history_buffer;
 uint32_t branch_history_register;
+
+// custom
+
+int chooser_size;
+int g_buffer_size;
+int l_buffer_size;
+int pc_buffer_size;
+
+uint32_t *chooser_buffer;
+uint32_t *g_buffer;
+uint32_t *l_buffer;
+uint32_t *pc_buffer;
+
+
 
 //------------------------------------//
 //        Predictor Functions         //
@@ -59,11 +73,10 @@ void one_bit_buffer_update(uint32_t pc, uint8_t outcome)
         default:
             break;
     }
-    return;
 }
 
 // two bit saturation counter update
-void two_bit_buffer_update(uint32_t pc, uint8_t outcome)
+void two_bit_buffer_update(uint32_t pc, uint8_t outcome, uint32_t* branch_history_buffer, int buffer_size)
 {
     int buffer_counter = pc % buffer_size;
     switch (branch_history_buffer[buffer_counter])
@@ -87,7 +100,7 @@ void two_bit_buffer_update(uint32_t pc, uint8_t outcome)
 // gshare
 void gshare_init(){
     buffer_size = (int)pow(2, ghistoryBits);
-    branch_history_buffer = (int*) malloc(buffer_size*sizeof(int));
+    branch_history_buffer = (uint32_t *) malloc(buffer_size*sizeof(uint32_t));
     branch_history_register &= (0 << ghistoryBits);
     for(int i = 0; i < buffer_size; ++i)
     {
@@ -98,7 +111,7 @@ void gshare_init(){
 uint8_t gshare_predict(uint32_t pc)
 {
     uint32_t buffer_counter = pc ^ branch_history_register;
-    int prediction = branch_history_buffer[buffer_counter % buffer_size];
+    uint32_t prediction = branch_history_buffer[buffer_counter % buffer_size];
     if(prediction < 2)
         return NOTTAKEN;
     else
@@ -108,7 +121,7 @@ uint8_t gshare_predict(uint32_t pc)
 void gshare_train(uint32_t pc, uint8_t outcome)
 {
     uint32_t buffer_counter = pc ^ branch_history_register;
-    two_bit_buffer_update(buffer_counter, outcome);
+    two_bit_buffer_update(buffer_counter, outcome, branch_history_buffer, buffer_size);
 
     branch_history_register = branch_history_register<<1 | outcome;
 }
@@ -117,42 +130,90 @@ void tournament_init(){
 
 }
 
-void
-tournament_train(uint32_t pc, uint8_t outcome)
+void tournament_train(uint32_t pc, uint8_t outcome)
 {
 
 }
 // custom
-void
-custom_init(){
-    int bit_number = 2;
-    buffer_size = 4;
-    branch_history_buffer = (int*)malloc(buffer_size*sizeof(int));
-    printf("%d", buffer_size);
-    for(int i = 0; i < buffer_size; ++i)
-    {
-        branch_history_buffer[i] = SN;
-    }
+void custom_init(){
+    // combination of gshare and simple BHT
+    ghistoryBits = 13;
+    lhistoryBits = 13;
+    pcIndexBits = 13;
+    branch_history_register = 0;
+
+    chooser_size = (int)pow(2, ghistoryBits);
+    g_buffer_size = (int)pow(2, ghistoryBits);
+    l_buffer_size = (int)pow(2, lhistoryBits);
+    pc_buffer_size = (int)pow(2, pcIndexBits);
+
+    chooser_buffer = (uint32_t*) malloc(chooser_size*sizeof(uint32_t));
+    g_buffer = (uint32_t*) malloc(g_buffer_size*sizeof(uint32_t));
+    l_buffer = (uint32_t*) malloc(l_buffer_size*sizeof(uint32_t));
+    pc_buffer = (uint32_t*) malloc(pc_buffer_size*sizeof(uint32_t));
+
+    for (int i = 0; i < chooser_size; ++i)
+        chooser_buffer[i] = 3;
+
+    for (int i = 0; i < g_buffer_size; ++i)
+        g_buffer[i] = SN;
+
+    for (int i = 0; i < l_buffer_size; ++i)
+        l_buffer[i] = SN;
+
+    for (int i = 0; i < pc_buffer_size; ++i)
+        pc_buffer[i] = 0;
 }
 
-void
-custom_train(uint32_t pc, uint8_t outcome)
+uint32_t custom_predict(uint32_t pc){
+    uint32_t g_buffer_counter = pc ^ branch_history_register;
+    uint32_t choice = chooser_buffer[g_buffer_counter % chooser_size];
+    uint32_t prediction;
+    // choose global
+    if(choice > 1) {
+        prediction = g_buffer[g_buffer_counter % g_buffer_size];
+    }
+    else{
+        int idx = pc_buffer[pc % pc_buffer_size];
+        prediction = l_buffer[idx % l_buffer_size];
+    }
+    if(prediction > 1)
+        return TAKEN;
+    else
+        return NOTTAKEN;
+}
+
+void custom_train(uint32_t pc, uint8_t outcome)
 {
-    int buffer_counter = pc % buffer_size;
-    switch (branch_history_buffer[buffer_counter])
-    {
-        case SN:
-            branch_history_buffer[buffer_counter] = outcome ? WN : SN;
+
+    uint32_t g_buffer_counter = pc ^ branch_history_register;
+    uint32_t p1 = g_buffer[g_buffer_counter % g_buffer_size];
+    uint32_t l_buffer_counter = pc_buffer[pc % pc_buffer_size];
+    uint32_t p2 = l_buffer[l_buffer_counter % l_buffer_size];
+    int p1c = (p1 == outcome);
+    int p2c = (p2 == outcome);
+    int action = p1c - p2c;
+    uint32_t choice = chooser_buffer[g_buffer_counter % chooser_size];
+    switch(action){
+        case -1:
+            if(choice > 0)
+                chooser_buffer[g_buffer_counter % chooser_size]--;
             break;
-        case WN:
-            branch_history_buffer[buffer_counter] = outcome ? WT : SN;
-        case WT:
-            branch_history_buffer[buffer_counter] = outcome ? ST : WN;
-        case ST:
-            branch_history_buffer[buffer_counter] = outcome ? ST : WT;
+        case 1:
+            if(choice < 3)
+                chooser_buffer[g_buffer_counter % chooser_size]++;
+            break;
+        case 0:
+            break;
         default:
             break;
     }
+    two_bit_buffer_update(g_buffer_counter, outcome, g_buffer, g_buffer_size);
+    two_bit_buffer_update(l_buffer_counter, outcome, l_buffer, l_buffer_size);
+
+    branch_history_register = (branch_history_register<<1 | outcome);
+    pc_buffer[pc % pcIndexBits] = (l_buffer_counter<< 1 | outcome);
+
 }
 
 // Initialize the predictor
@@ -200,7 +261,7 @@ make_prediction(uint32_t pc)
         case TOURNAMENT:
             break;
         case CUSTOM:
-            return branch_history_buffer[pc % buffer_size]/2;
+            return custom_predict(pc);
         default:
             break;
     }
