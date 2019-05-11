@@ -137,6 +137,7 @@ main(int argc, char *argv[])
   // Cleanup
   fclose(stream);
   free(buf);
+  cleanup_predictor();
 
   return 0;
 }

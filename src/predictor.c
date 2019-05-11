@@ -48,11 +48,17 @@ int g_buffer_size;
 int l_buffer_size;
 int pc_buffer_size;
 
+
 uint32_t *chooser_buffer;
 uint32_t *g_buffer;
 uint32_t *l_buffer;
 uint32_t *pc_buffer;
 
+//perceptron
+int perceptron_table_size;
+int weight_size;
+int *perceptron_table;
+int theta;
 
 
 //------------------------------------//
@@ -169,6 +175,7 @@ uint32_t custom_predict(uint32_t pc){
     uint32_t g_buffer_counter = pc ^ branch_history_register;
     uint32_t choice = chooser_buffer[g_buffer_counter % chooser_size];
     uint32_t prediction;
+
     // choose global
     if(choice > 1) {
         prediction = g_buffer[g_buffer_counter % g_buffer_size];
@@ -218,6 +225,125 @@ void custom_train(uint32_t pc, uint8_t outcome)
     pc_buffer[pc % pcIndexBits] = (l_buffer_counter<< 1 | outcome);
 
 }
+// perceptron predictor
+void perceptron_init(){
+
+    ghistoryBits = 12;
+    theta = (int)(1.94*ghistoryBits+14);
+
+    chooser_size = (int)pow(2, ghistoryBits);
+    g_buffer_size = (int)pow(2, ghistoryBits);
+    perceptron_table_size = 80;
+    weight_size = 0;
+
+    branch_history_register = 0;
+    g_buffer = (uint32_t*)malloc(g_buffer_size * sizeof(uint32_t));
+    chooser_buffer = (uint32_t*)malloc(chooser_size * sizeof(uint32_t));
+
+    for (int k = 0; k < g_buffer_size; ++k) {
+        g_buffer[k] = WN;
+    }
+
+    for (int k = 0; k < chooser_size; ++k) {
+        chooser_buffer[k] = 2;
+    }
+    perceptron_table = (int*) malloc( perceptron_table_size * ghistoryBits * sizeof(int));
+    // weight initialization
+    for(int i = 0; i < perceptron_table_size; ++i)
+        for(int j = 0; j < ghistoryBits; ++j)
+            perceptron_table[ i * ghistoryBits + j ] = 0;
+}
+
+uint8_t perceptron_predict(uint32_t pc){
+    uint32_t g_buffer_counter = pc ^ branch_history_register;
+    int choice = chooser_buffer[g_buffer_counter % chooser_size];
+    int prediction;
+    if(choice > 1){
+        prediction = g_buffer[g_buffer_counter % g_buffer_size];
+        if(prediction > 1)
+            return TAKEN;
+        else
+            return NOTTAKEN;
+    }
+    else{
+        int perceptron = pc % perceptron_table_size;
+        // prediction
+        int y = 1;
+        int mask = 1;
+        int bhr = branch_history_register;
+        for (int i = 0; i < ghistoryBits; ++i) {
+            int xi = mask & (bhr >> i);
+            xi = (xi==1) ? 1 : -1;
+            y += xi * perceptron_table[perceptron * ghistoryBits + i];
+        }
+        if(y > 0)
+            return TAKEN;
+        else
+            return NOTTAKEN;
+    }
+
+}
+
+void perceptron_train(uint32_t pc, uint8_t outcome){
+
+    //chooser update
+    uint32_t g_buffer_counter = pc ^ branch_history_register;
+    uint32_t p1 = g_buffer[g_buffer_counter % g_buffer_size];
+
+    int perceptron = pc % perceptron_table_size;
+    // prediction
+    int y = 1;
+    int mask = 1;
+    int bhr = branch_history_register;
+    for (int i = 0; i < ghistoryBits; ++i) {
+        int xi = mask & (bhr >> i);
+        y += xi * perceptron_table[perceptron * ghistoryBits + i];
+    }
+    int p2;
+    if(y > 0)
+        p2 = 1;
+    else
+        p2 = 0;
+
+    int p1c = ((p1/2) == outcome);
+    int p2c = (p2 == outcome);
+
+    int action = p1c - p2c;
+
+    uint32_t choice = chooser_buffer[g_buffer_counter % chooser_size];
+    switch(action){
+        case -1:
+            if(choice > 0)
+                chooser_buffer[g_buffer_counter % chooser_size]--;
+            break;
+        case 1:
+            if(choice < 3)
+                chooser_buffer[g_buffer_counter % chooser_size]++;
+            break;
+        case 0:
+            break;
+        default:
+            break;
+    }
+
+    // perceptron update
+    int t = (outcome == 1) ? 1 : -1;
+
+    int limit = (int)pow(2, weight_size);
+    int sign = (y > 0) ? 1 : -1;
+    if( (sign!=t) || (abs(y) <= theta) ){
+        for (int i = 0; i < ghistoryBits; ++i) {
+            int xi = mask & (bhr >> i);
+            xi = (xi==1) ? 1 : -1;
+            int w = perceptron_table[perceptron * ghistoryBits + i] + t * xi;
+            if(abs(w) < limit)
+                perceptron_table[perceptron * ghistoryBits + i] = w;
+        }
+    }
+    // gshare update
+    two_bit_buffer_update(g_buffer_counter, outcome, g_buffer, g_buffer_size);
+    branch_history_register = (branch_history_register<<1 | outcome);
+}
 
 // Initialize the predictor
 //
@@ -237,7 +363,7 @@ init_predictor()
             tournament_init();
             return;
         case CUSTOM:
-            custom_init();
+            perceptron_init();
             return;
         default:
             break;
@@ -264,7 +390,7 @@ make_prediction(uint32_t pc)
         case TOURNAMENT:
             break;
         case CUSTOM:
-            return custom_predict(pc);
+            return perceptron_predict(pc);
         default:
             break;
     }
@@ -293,8 +419,24 @@ train_predictor(uint32_t pc, uint8_t outcome)
             tournament_train(pc, outcome);
             return;
         case CUSTOM:
-            custom_train(pc, outcome);
+            perceptron_train(pc, outcome);
             return;
+        default:
+            break;
+    }
+}
+
+void cleanup_predictor() {
+    switch (bpType) {
+        case GSHARE:
+            free(branch_history_buffer);
+            break;
+        case CUSTOM:
+            free(chooser_buffer);
+            free(g_buffer);
+            free(l_buffer);
+            free(pc_buffer);
+            break;
         default:
             break;
     }
