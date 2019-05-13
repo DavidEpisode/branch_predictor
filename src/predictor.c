@@ -216,35 +216,15 @@ void tournament_train(uint32_t pc, uint8_t outcome) {
 
 
 void gshare_init() {
-    ghistoryBits = 13;
-    gHistoryRegister = 0;
-    gHistoryMask = lowerBitMask(ghistoryBits);
-    printf("mask: %d\n", gHistoryMask);
-    // size_t size = (1 << ghistoryBits);
-    size_t numEntries = pow(2, ghistoryBits);
-    printf("size: %d\n", numEntries);
-    BHT = (uint8_t*) malloc(numEntries * sizeof(uint8_t));
-    for (int i = 0; i < numEntries; i++) {
-        BHT[i] = WN;
-    }
+
 }
 
 uint8_t gshare_predict(uint32_t pc) {
-    uint32_t tmp = pc ^ gHistoryRegister;
-    int index = tmp & gHistoryMask;
-    //int index2 = tmp % numEntries;
-    //printf("index = %d  |  %d\n", index, index2);
-    if (BHT[index] < 2) {
-        return NOTTAKEN;
-    } else {
-        return TAKEN;
-    }
+
 }
 
 void gshare_train(uint32_t pc, uint8_t outcome) {
-    //int index = (pc ^ gHistoryRegister) & gHistoryMask;
-    //two_bit_buffer_update(index, outcome);
-    //gHistoryRegister = (gHistoryRegister << 1) | outcome;
+
 }
 
 
