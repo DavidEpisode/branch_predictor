@@ -4,8 +4,8 @@ set(CMAKE_DEPENDS_LANGUAGES
   )
 # The set of files for implicit dependencies of each language:
 set(CMAKE_DEPENDS_CHECK_C
-  "/Users/xinmingzhang/Course/Computer Architecture/branch predictor/src/main.c" "/Users/xinmingzhang/Course/Computer Architecture/branch predictor/cmake-build-debug/CMakeFiles/branch_predictor.dir/src/main.c.o"
-  "/Users/xinmingzhang/Course/Computer Architecture/branch predictor/src/predictor.c" "/Users/xinmingzhang/Course/Computer Architecture/branch predictor/cmake-build-debug/CMakeFiles/branch_predictor.dir/src/predictor.c.o"
+  "/Users/chfang/Documents/UCSD/branch_predictor/src/main.c" "/Users/chfang/Documents/UCSD/branch_predictor/cmake-build-debug/CMakeFiles/branch_predictor.dir/src/main.c.o"
+  "/Users/chfang/Documents/UCSD/branch_predictor/src/predictor.c" "/Users/chfang/Documents/UCSD/branch_predictor/cmake-build-debug/CMakeFiles/branch_predictor.dir/src/predictor.c.o"
   )
 set(CMAKE_C_COMPILER_ID "AppleClang")
 
