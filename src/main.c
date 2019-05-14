@@ -49,6 +49,7 @@ handle_option(char *arg)
     sscanf(arg+13,"%d:%d:%d", &ghistoryBits, &lhistoryBits, &pcIndexBits);
   } else if (!strcmp(arg,"--custom")) {
     bpType = CUSTOM;
+//    sscanf(arg+9,"%d:%d:%d", &ghistoryBits, &perceptron_table_size, &weight_size);
   } else if (!strcmp(arg,"--verbose")) {
     verbose = 1;
   } else {
@@ -61,7 +62,7 @@ handle_option(char *arg)
 // Reads a line from the input stream and extracts the
 // PC and Outcome of a branch
 //
-// Returns True if Successful 
+// Returns True if Successful
 //
 int
 read_branch(uint32_t *pc, uint8_t *outcome)
@@ -137,7 +138,7 @@ main(int argc, char *argv[])
   // Cleanup
   fclose(stream);
   free(buf);
-  cleanup_predictor();
+//  cleanup_predictor();
 
   return 0;
 }

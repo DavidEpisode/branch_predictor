@@ -54,6 +54,25 @@ uint32_t *g_buffer;
 uint32_t *l_buffer;
 uint32_t *pc_buffer;
 
+// Gshare
+uint32_t gHistoryRegister;
+uint8_t* BHT;
+
+// Tournament
+int gHistoryMask;
+int lHistoryMask;
+int pcIndexMask;
+
+uint32_t* gPredictionTable;
+uint32_t* lHistoryTable;
+uint32_t* lPredictionTable;
+uint32_t* choicePredictionTable;
+
+uint32_t gPredictionTableSize;
+uint32_t lHistoryTableSize;
+uint32_t lPredictionTableSize;
+uint32_t choicePredictionTableSize;
+
 //perceptron
 int perceptron_table_size;
 int weight_size;
@@ -131,15 +150,172 @@ void gshare_train(uint32_t pc, uint8_t outcome)
 
     branch_history_register = branch_history_register<<1 | outcome;
 }
+
+
 // tournament
-void tournament_init(){
+void choice_predictor_increment() {
+    int index = gHistoryRegister % choicePredictionTableSize;
+    if (choicePredictionTable[index] < 3) {
+        choicePredictionTable[index] += 1;
+    }
+}
+
+void choice_predictor_decrement() {
+    int index = gHistoryRegister % choicePredictionTableSize;
+    if (choicePredictionTable[index] > 0) {
+        choicePredictionTable[index] -= 1;
+    }
+}
+
+void tournament_init() {
+    gHistoryRegister = 0;
+
+    // Global predictor
+    gPredictionTableSize = (uint32_t)pow(2, ghistoryBits);
+    gPredictionTable = (uint32_t*) malloc(gPredictionTableSize * sizeof(uint32_t));
+    for (int i = 0; i < gPredictionTableSize; i++) {
+        gPredictionTable[i] = WN;
+    }
+
+    // Local
+    lHistoryTableSize = (uint32_t)pow(2, lhistoryBits);
+    lHistoryTable = (uint32_t*) malloc(lHistoryTableSize * sizeof(uint32_t)); // level 1
+    for (int k = 0; k < lHistoryTableSize; ++k) {
+        lHistoryTable[k] = 0;
+    }
+
+    lPredictionTableSize = (uint32_t)pow(2, pcIndexBits);
+    lPredictionTable = (uint32_t*) malloc(lPredictionTableSize * sizeof(uint32_t)); // level 2
+    for (int i = 0; i < gPredictionTableSize; i++) {
+        lPredictionTable[i] = WN;
+    }
+
+    // Choice predictor
+    choicePredictionTableSize = (uint32_t)pow(2, ghistoryBits);
+    choicePredictionTable = (uint32_t*) malloc(choicePredictionTableSize * sizeof(uint32_t));
+    for (int j = 0; j < choicePredictionTableSize; ++j) {
+        choicePredictionTable[j] = 2;
+    }
 
 }
 
-void tournament_train(uint32_t pc, uint8_t outcome)
-{
-
+// Translate a two bit saturated counter to a prediction.
+uint8_t predict(uint32_t twoBitCounter) {
+    if (twoBitCounter < 2) {
+        return NOTTAKEN;
+    } else {
+        return TAKEN;
+    }
 }
+
+// Obtain the prediction(T/NT) by the global predictor.
+uint8_t tournament_global_predict() {
+    // int gIndex = gHistoryRegister & gHistoryMask;
+    int gIndex = gHistoryRegister % gPredictionTableSize;
+    return predict(gPredictionTable[gIndex]);
+}
+
+// Obtain the prediction(T/NT) by the local predictor.
+uint8_t tournament_local_predict(uint32_t pc) {
+    //uint32_t lv1_index = pc & pcIndexMask;
+    //uint32_t lv2_index = lHistoryTable[lv1_index] & lHistoryMask;
+    uint32_t lv1_index = pc % lHistoryTableSize;
+    uint32_t lv2_index = lHistoryTable[lv1_index] % lPredictionTableSize;
+    return predict(lPredictionTable[lv2_index]);
+}
+// Obtain the final prediction(T/NT) by the choice predictor.
+uint8_t tournament_predict(uint32_t pc) {
+    // int choiceIndex = gHistoryRegister & gHistoryMask;
+//    int choiceIndex = gHistoryRegister % choicePredictionTableSize;
+//    uint32_t choice = choicePredictionTable[choiceIndex];
+//    // global
+//    if (choice > 1) {
+//        return tournament_global_predict();
+//    } else { // local
+//        return tournament_local_predict(pc);
+//    }
+
+    int choice = choicePredictionTable[gHistoryRegister % choicePredictionTableSize];
+    int prediction;
+    if(choice > 1)
+    {
+        prediction = gPredictionTable[gHistoryRegister % gPredictionTableSize];
+    }
+    else{
+        int l1_index = lHistoryTable[pc % lHistoryTableSize];
+        prediction = lPredictionTable[l1_index % lHistoryTableSize];
+    }
+    if(prediction > 1)
+        return TAKEN;
+    else
+        return NOTTAKEN;
+}
+
+void tournament_train(uint32_t pc, uint8_t outcome) {
+    int choice = choicePredictionTable[gHistoryRegister % choicePredictionTableSize];
+    int gprediction = gPredictionTable[gHistoryRegister % gPredictionTableSize];
+
+    uint32_t l1_index = lHistoryTable[pc % lHistoryTableSize];
+    int lprediction = lPredictionTable[l1_index % lHistoryTableSize];
+
+    int p1c = (gprediction/2 == outcome);
+    int p2c = (lprediction/2 == outcome);
+
+    int action = p1c - p2c;
+    switch(action){
+        case -1:
+            if(choice > 0)
+                choicePredictionTable[gHistoryRegister % choicePredictionTableSize]--;
+            break;
+        case 1:
+            if(choice < 3)
+                choicePredictionTable[gHistoryRegister % choicePredictionTableSize]++;
+            break;
+        case 0:
+            break;
+        default:
+            break;
+    }
+    two_bit_buffer_update(gHistoryRegister, outcome, gPredictionTable, gPredictionTableSize);
+    two_bit_buffer_update(l1_index, outcome, lPredictionTable, lPredictionTableSize);
+
+    lHistoryTable[pc % lHistoryTableSize] = (l1_index<< 1 | outcome);
+    gHistoryRegister = ((gHistoryRegister << 1) | outcome);
+
+//    uint8_t gPrediction = tournament_global_predict(); // global prediction
+//    uint8_t lPrediction = tournament_local_predict(pc); // local prediction
+//
+//    // Update choice predictor only if global & local predicts differently.
+//    if (gPrediction != lPrediction) {
+//        if (gPrediction == outcome) {
+//            // global(1) is correct, local(0) is incorrect
+//            choice_predictor_increment();
+//        } else {
+//            // local is correct, global is incorrect
+//            choice_predictor_decrement();
+//        }
+//    }
+//
+//    // Update global predictor
+//    two_bit_buffer_update(gHistoryRegister, outcome, gPredictionTable, gPredictionTableSize);
+//
+//    // Update local predictor
+//    // uint32_t lv1_index = pc & pcIndexMask;
+//    uint32_t lv1_index = pc % lHistoryTableSize;
+//    uint32_t lv2_index = lHistoryTable[lv1_index] % lPredictionTableSize;
+//    two_bit_buffer_update(lv2_index, outcome, lHistoryTable, lHistoryTableSize);
+//
+    // Update local history
+    //uint32_t lhistory_old = lHistoryTable[lv1_index] & 7;
+//    lHistoryTable[l1_index] = ((lHistoryTable[l1_index] << 1) | outcome);
+    //uint32_t lhistory_updated = lHistoryTable[lv1_index] & 7;
+//
+    // update global history
+    //uint32_t ghistory_old = gHistoryRegister & 7;
+//    gHistoryRegister = ((gHistoryRegister << 1) | outcome);
+    //uint32_t ghistory_updated = gHistoryRegister & 7;
+}
+
 // custom
 void custom_init(){
     // combination of gshare and simple BHT
@@ -171,7 +347,7 @@ void custom_init(){
         pc_buffer[i] = 0;
 }
 
-uint32_t custom_predict(uint32_t pc){
+uint8_t custom_predict(uint32_t pc){
     uint32_t g_buffer_counter = pc ^ branch_history_register;
     uint32_t choice = chooser_buffer[g_buffer_counter % chooser_size];
     uint32_t prediction;
@@ -222,31 +398,45 @@ void custom_train(uint32_t pc, uint8_t outcome)
     two_bit_buffer_update(l_buffer_counter, outcome, l_buffer, l_buffer_size);
 
     branch_history_register = (branch_history_register<<1 | outcome);
-    pc_buffer[pc % pcIndexBits] = (l_buffer_counter<< 1 | outcome);
+    pc_buffer[pc % pc_buffer_size] = (l_buffer_counter<< 1 | outcome);
 
 }
 // perceptron predictor
 void perceptron_init(){
 
-    ghistoryBits = 12;
+    ghistoryBits = 9;
+    lhistoryBits = 10;
+    pcIndexBits = 10;
     theta = (int)(1.94*ghistoryBits+14);
 
-    chooser_size = (int)pow(2, ghistoryBits);
+    pc_buffer_size = (int)pow(2, lhistoryBits);
+    l_buffer_size = (int)pow(2, lhistoryBits);
     g_buffer_size = (int)pow(2, ghistoryBits);
-    perceptron_table_size = 80;
-    weight_size = 0;
+
+    perceptron_table_size = 22;
+    weight_size = 8;
 
     branch_history_register = 0;
     g_buffer = (uint32_t*)malloc(g_buffer_size * sizeof(uint32_t));
-    chooser_buffer = (uint32_t*)malloc(chooser_size * sizeof(uint32_t));
+    l_buffer = (uint32_t*) malloc(l_buffer_size*sizeof(uint32_t));
+    pc_buffer = (uint32_t*) malloc(pc_buffer_size*sizeof(uint32_t));
+//    chooser_buffer = (uint32_t*)malloc(chooser_size * sizeof(uint32_t));
+
+    for (int i = 0; i < pc_buffer_size; ++i) {
+        pc_buffer[i] = 0;
+    }
+
+    for (int i = 0; i < l_buffer_size; ++i) {
+        pc_buffer[i] = WN;
+    }
 
     for (int k = 0; k < g_buffer_size; ++k) {
         g_buffer[k] = WN;
     }
 
-    for (int k = 0; k < chooser_size; ++k) {
-        chooser_buffer[k] = 2;
-    }
+//    for (int k = 0; k < chooser_size; ++k) {
+//        chooser_buffer[k] = 2;
+//    }
     perceptron_table = (int*) malloc( perceptron_table_size * ghistoryBits * sizeof(int));
     // weight initialization
     for(int i = 0; i < perceptron_table_size; ++i)
@@ -256,39 +446,108 @@ void perceptron_init(){
 
 uint8_t perceptron_predict(uint32_t pc){
     uint32_t g_buffer_counter = pc ^ branch_history_register;
-    int choice = chooser_buffer[g_buffer_counter % chooser_size];
-    int prediction;
-    if(choice > 1){
-        prediction = g_buffer[g_buffer_counter % g_buffer_size];
-        if(prediction > 1)
-            return TAKEN;
-        else
-            return NOTTAKEN;
+    uint32_t p1 = g_buffer[g_buffer_counter % g_buffer_size];
+
+    int l_buffer_counter = pc_buffer[pc % pc_buffer_size];
+    uint32_t p2 = l_buffer[l_buffer_counter % l_buffer_size];
+
+    int p3;
+    int perceptron = pc % perceptron_table_size;
+    // prediction
+    int y = 1;
+    int mask = 1;
+    int bhr = branch_history_register;
+    for (int i = 0; i < ghistoryBits; ++i) {
+        int xi = mask & (bhr >> i);
+        xi = (xi==1) ? 1 : -1;
+        y += xi * perceptron_table[perceptron * ghistoryBits + i];
     }
-    else{
-        int perceptron = pc % perceptron_table_size;
-        // prediction
-        int y = 1;
-        int mask = 1;
-        int bhr = branch_history_register;
-        for (int i = 0; i < ghistoryBits; ++i) {
-            int xi = mask & (bhr >> i);
-            xi = (xi==1) ? 1 : -1;
-            y += xi * perceptron_table[perceptron * ghistoryBits + i];
-        }
-        if(y > 0)
-            return TAKEN;
-        else
-            return NOTTAKEN;
-    }
+    if(y > 0)
+        p3 = TAKEN;
+    else
+        p3 = NOTTAKEN;
+
+    int vote = 0;
+    if(p1 > 1)
+        vote++;
+    if(p2 > 1)
+        vote++;
+    if(p3==1)
+        vote++;
+    if(vote > 1)
+        return TAKEN;
+    else
+        return NOTTAKEN;
+
+//    int choice = chooser_buffer[g_buffer_counter % chooser_size];
+//    int prediction;
+//    if(choice > 1){
+//        prediction = g_buffer[g_buffer_counter % g_buffer_size];
+//        if(prediction > 1)
+//            return TAKEN;
+//        else
+//            return NOTTAKEN;
+//    }
+//    else{
+//        int perceptron = pc % perceptron_table_size;
+//        // prediction
+//        int y = 1;
+//        int mask = 1;
+//        int bhr = branch_history_register;
+//        for (int i = 0; i < ghistoryBits; ++i) {
+//            int xi = mask & (bhr >> i);
+//            xi = (xi==1) ? 1 : -1;
+//            y += xi * perceptron_table[perceptron * ghistoryBits + i];
+//        }
+//        if(y > 0)
+//            return TAKEN;
+//        else
+//            return NOTTAKEN;
+//    }
 
 }
 
 void perceptron_train(uint32_t pc, uint8_t outcome){
 
     //chooser update
-    uint32_t g_buffer_counter = pc ^ branch_history_register;
-    uint32_t p1 = g_buffer[g_buffer_counter % g_buffer_size];
+//    uint32_t g_buffer_counter = pc ^ branch_history_register;
+//    uint32_t p1 = g_buffer[g_buffer_counter % g_buffer_size];
+//
+//    int perceptron = pc % perceptron_table_size;
+//    // prediction
+//    int y = 1;
+//    int mask = 1;
+//    int bhr = branch_history_register;
+//    for (int i = 0; i < ghistoryBits; ++i) {
+//        int xi = mask & (bhr >> i);
+//        y += xi * perceptron_table[perceptron * ghistoryBits + i];
+//    }
+//    int p2;
+//    if(y > 0)
+//        p2 = 1;
+//    else
+//        p2 = 0;
+//
+//    int p1c = ((p1/2) == outcome);
+//    int p2c = (p2 == outcome);
+//
+//    int action = p1c - p2c;
+//
+//    uint32_t choice = chooser_buffer[g_buffer_counter % chooser_size];
+//    switch(action){
+//        case -1:
+//            if(choice > 0)
+//                chooser_buffer[g_buffer_counter % chooser_size]--;
+//            break;
+//        case 1:
+//            if(choice < 3)
+//                chooser_buffer[g_buffer_counter % chooser_size]++;
+//            break;
+//        case 0:
+//            break;
+//        default:
+//            break;
+//    }
 
     int perceptron = pc % perceptron_table_size;
     // prediction
@@ -298,32 +557,6 @@ void perceptron_train(uint32_t pc, uint8_t outcome){
     for (int i = 0; i < ghistoryBits; ++i) {
         int xi = mask & (bhr >> i);
         y += xi * perceptron_table[perceptron * ghistoryBits + i];
-    }
-    int p2;
-    if(y > 0)
-        p2 = 1;
-    else
-        p2 = 0;
-
-    int p1c = ((p1/2) == outcome);
-    int p2c = (p2 == outcome);
-
-    int action = p1c - p2c;
-
-    uint32_t choice = chooser_buffer[g_buffer_counter % chooser_size];
-    switch(action){
-        case -1:
-            if(choice > 0)
-                chooser_buffer[g_buffer_counter % chooser_size]--;
-            break;
-        case 1:
-            if(choice < 3)
-                chooser_buffer[g_buffer_counter % chooser_size]++;
-            break;
-        case 0:
-            break;
-        default:
-            break;
     }
 
     // perceptron update
@@ -340,15 +573,21 @@ void perceptron_train(uint32_t pc, uint8_t outcome){
                 perceptron_table[perceptron * ghistoryBits + i] = w;
         }
     }
+
+    uint32_t g_buffer_counter = pc ^ branch_history_register;
+    uint32_t l_buffer_counter = pc_buffer[pc % pc_buffer_size];
+
     // gshare update
     two_bit_buffer_update(g_buffer_counter, outcome, g_buffer, g_buffer_size);
+    two_bit_buffer_update(l_buffer_counter, outcome, l_buffer, l_buffer_size);
+
     branch_history_register = (branch_history_register<<1 | outcome);
+    pc_buffer[pc % pc_buffer_size] = (l_buffer_counter<< 1 | outcome);
 }
 
 // Initialize the predictor
 //
-void
-init_predictor()
+void init_predictor()
 {
     //
     //TODO: Initialize Branch Predictor Data Structures
@@ -388,7 +627,7 @@ make_prediction(uint32_t pc)
         case GSHARE:
             return gshare_predict(pc);
         case TOURNAMENT:
-            break;
+            return tournament_predict(pc);
         case CUSTOM:
             return perceptron_predict(pc);
         default:
