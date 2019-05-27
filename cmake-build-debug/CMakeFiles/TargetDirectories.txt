@@ -1,3 +1,3 @@
-/Users/xinmingzhang/Course/Computer Architecture/branch predictor/cmake-build-debug/CMakeFiles/rebuild_cache.dir
-/Users/xinmingzhang/Course/Computer Architecture/branch predictor/cmake-build-debug/CMakeFiles/edit_cache.dir
-/Users/xinmingzhang/Course/Computer Architecture/branch predictor/cmake-build-debug/CMakeFiles/branch_predictor.dir
+/Users/chfang/Documents/branch_predictor/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/Users/chfang/Documents/branch_predictor/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/chfang/Documents/branch_predictor/cmake-build-debug/CMakeFiles/branch_predictor.dir

@@ -153,54 +153,49 @@ void gshare_train(uint32_t pc, uint8_t outcome)
 
 
 // tournament
-void choice_predictor_increment() {
-    int index = gHistoryRegister % choicePredictionTableSize;
-    if (choicePredictionTable[index] < 3) {
-        choicePredictionTable[index] += 1;
-    }
+// void choice_predictor_increment() {
+//     int index = gHistoryRegister % choicePredictionTableSize;
+//     if (choicePredictionTable[index] < 3) {
+//         choicePredictionTable[index] += 1;
+//     }
+// }
+
+// void choice_predictor_decrement() {
+//     int index = gHistoryRegister % choicePredictionTableSize;
+//     if (choicePredictionTable[index] > 0) {
+//         choicePredictionTable[index] -= 1;
+//     }
+// }
+
+// tournament
+// info: global hisotory, local history or PC
+int entryIndex(int info, int mask) {
+    return info & mask;
 }
 
-void choice_predictor_decrement() {
-    int index = gHistoryRegister % choicePredictionTableSize;
-    if (choicePredictionTable[index] > 0) {
-        choicePredictionTable[index] -= 1;
-    }
+int lHistoryTableIndex(int pc) {
+    int mask  = (1 << pcIndexBits) - 1;
+    return entryIndex(pc, mask);
 }
 
-void tournament_init() {
-    gHistoryRegister = 0;
-
-    // Global predictor
-    gPredictionTableSize = (uint32_t)pow(2, ghistoryBits);
-    gPredictionTable = (uint32_t*) malloc(gPredictionTableSize * sizeof(uint32_t));
-    for (int i = 0; i < gPredictionTableSize; i++) {
-        gPredictionTable[i] = WN;
-    }
-
-    // Local
-    lHistoryTableSize = (uint32_t)pow(2, lhistoryBits);
-    lHistoryTable = (uint32_t*) malloc(lHistoryTableSize * sizeof(uint32_t)); // level 1
-    for (int k = 0; k < lHistoryTableSize; ++k) {
-        lHistoryTable[k] = 0;
-    }
-
-    lPredictionTableSize = (uint32_t)pow(2, pcIndexBits);
-    lPredictionTable = (uint32_t*) malloc(lPredictionTableSize * sizeof(uint32_t)); // level 2
-    for (int i = 0; i < gPredictionTableSize; i++) {
-        lPredictionTable[i] = WN;
-    }
-
-    // Choice predictor
-    choicePredictionTableSize = (uint32_t)pow(2, ghistoryBits);
-    choicePredictionTable = (uint32_t*) malloc(choicePredictionTableSize * sizeof(uint32_t));
-    for (int j = 0; j < choicePredictionTableSize; ++j) {
-        choicePredictionTable[j] = 2;
-    }
-
+int lPredictionTableIndex(int lHistory) {
+    int mask = (1 << lhistoryBits) - 1;
+    return entryIndex(lHistory, mask);
 }
+
+int gPredictionTableIndex(int gHistory) {
+    int mask = (1 << ghistoryBits) - 1;
+    return entryIndex(gHistory, mask);
+}
+
+int choicePredictionTableIndex(int gHistory) {
+    int mask = (1 << ghistoryBits) - 1;
+    return entryIndex(gHistory, mask);
+}
+
 
 // Translate a two bit saturated counter to a prediction.
-uint8_t predict(uint32_t twoBitCounter) {
+uint8_t action(uint32_t twoBitCounter) {
     if (twoBitCounter < 2) {
         return NOTTAKEN;
     } else {
@@ -208,112 +203,96 @@ uint8_t predict(uint32_t twoBitCounter) {
     }
 }
 
-// Obtain the prediction(T/NT) by the global predictor.
-uint8_t tournament_global_predict() {
-    // int gIndex = gHistoryRegister & gHistoryMask;
-    int gIndex = gHistoryRegister % gPredictionTableSize;
-    return predict(gPredictionTable[gIndex]);
+void tournament_init() {
+gHistoryRegister = 0;
+
+    // Two level local predictions
+    // local level 1
+    lHistoryTableSize = pow(2, pcIndexBits);
+    lHistoryTable = (uint32_t*) malloc(lHistoryTableSize * sizeof(uint32_t));
+
+    // local level 2
+    lPredictionTableSize = pow(2, lhistoryBits);
+    lPredictionTable = (uint32_t*) malloc(lPredictionTableSize * sizeof(uint32_t));
+    for (int i = 0; i < lPredictionTableSize; i++) {
+        lPredictionTable[i] = WN;
+    }
+
+    // Global predictor
+    gPredictionTableSize = pow(2, ghistoryBits);
+    gPredictionTable = (uint32_t*) malloc(gPredictionTableSize * sizeof(uint32_t));
+    for (int i = 0; i < gPredictionTableSize; i++) {
+        gPredictionTable[i] = WN;
+    }
+
+    // Choice predictor
+    choicePredictionTableSize = pow(2, ghistoryBits);
+    choicePredictionTable = (uint32_t*) malloc(choicePredictionTableSize * sizeof(uint32_t));
+    for (int j = 0; j < choicePredictionTableSize; ++j) {
+        choicePredictionTable[j] = 2;
+    }
 }
+
 
 // Obtain the prediction(T/NT) by the local predictor.
-uint8_t tournament_local_predict(uint32_t pc) {
-    //uint32_t lv1_index = pc & pcIndexMask;
-    //uint32_t lv2_index = lHistoryTable[lv1_index] & lHistoryMask;
-    uint32_t lv1_index = pc % lHistoryTableSize;
-    uint32_t lv2_index = lHistoryTable[lv1_index] % lPredictionTableSize;
-    return predict(lPredictionTable[lv2_index]);
+int tournament_local_predict(uint32_t pc) {
+    uint32_t lHistory = lHistoryTable[lHistoryTableIndex(pc)];
+    uint32_t lPredictCounter = lPredictionTable[lPredictionTableIndex(lHistory)];
+    return lPredictCounter & 0b11; // 2-bit counter
 }
+
+// Obtain the prediction(T/NT) by the global predictor.
+int tournament_global_predict() {
+    int index = gPredictionTableIndex(gHistoryRegister);
+    return gPredictionTable[index] & 0b11;
+}
+
+
 // Obtain the final prediction(T/NT) by the choice predictor.
 uint8_t tournament_predict(uint32_t pc) {
-    // int choiceIndex = gHistoryRegister & gHistoryMask;
-//    int choiceIndex = gHistoryRegister % choicePredictionTableSize;
-//    uint32_t choice = choicePredictionTable[choiceIndex];
-//    // global
-//    if (choice > 1) {
-//        return tournament_global_predict();
-//    } else { // local
-//        return tournament_local_predict(pc);
-//    }
-
-    int choice = choicePredictionTable[gHistoryRegister % choicePredictionTableSize];
+    int index = choicePredictionTableIndex(gHistoryRegister);
+    int choice = choicePredictionTable[index];
     int prediction;
-    if(choice > 1)
-    {
-        prediction = gPredictionTable[gHistoryRegister % gPredictionTableSize];
+    if (choice < 2) { // local
+        prediction = tournament_local_predict(pc); // my
+    } else { // global
+        prediction = tournament_global_predict(); // my
     }
-    else{
-        int l1_index = lHistoryTable[pc % lHistoryTableSize];
-        prediction = lPredictionTable[l1_index % lHistoryTableSize];
-    }
-    if(prediction > 1)
-        return TAKEN;
-    else
-        return NOTTAKEN;
+    return action(prediction);
 }
 
 void tournament_train(uint32_t pc, uint8_t outcome) {
-    int choice = choicePredictionTable[gHistoryRegister % choicePredictionTableSize];
-    int gprediction = gPredictionTable[gHistoryRegister % gPredictionTableSize];
-
-    uint32_t l1_index = lHistoryTable[pc % lHistoryTableSize];
-    int lprediction = lPredictionTable[l1_index % lHistoryTableSize];
-
-    int p1c = (gprediction/2 == outcome);
-    int p2c = (lprediction/2 == outcome);
-
-    int action = p1c - p2c;
-    switch(action){
-        case -1:
-            if(choice > 0)
-                choicePredictionTable[gHistoryRegister % choicePredictionTableSize]--;
-            break;
-        case 1:
-            if(choice < 3)
-                choicePredictionTable[gHistoryRegister % choicePredictionTableSize]++;
-            break;
-        case 0:
-            break;
-        default:
-            break;
+    int gPrediction = action(tournament_global_predict());
+    int lPrediction = action(tournament_local_predict(pc));
+    // update choice prediction only when local & global makes different predictions
+    if (gPrediction != lPrediction) {
+        int index = choicePredictionTableIndex(gHistoryRegister);
+        int choice = choicePredictionTable[index];
+        if (gPrediction == outcome && choice < 3) { // global is correct
+            choicePredictionTable[index] += 1;
+        } else if (lPrediction == outcome && choice > 0){ // local is correct
+            choicePredictionTable[index] -= 1;
+        }
     }
+
+    int l1_index = lHistoryTableIndex(pc);
+    int lHistory = lHistoryTable[l1_index];
+    int l2_index = lPredictionTableIndex(lHistory);
+
+    // Update local predictor
+    two_bit_buffer_update(l2_index, outcome, lPredictionTable, lPredictionTableSize);
+//    two_bit_buffer_update(l2_index, outcome, lHistoryTable, lHistoryTableSize); // buggy
+
+    // Update global predictor
     two_bit_buffer_update(gHistoryRegister, outcome, gPredictionTable, gPredictionTableSize);
-    two_bit_buffer_update(l1_index, outcome, lPredictionTable, lPredictionTableSize);
 
-    lHistoryTable[pc % lHistoryTableSize] = (l1_index<< 1 | outcome);
-    gHistoryRegister = ((gHistoryRegister << 1) | outcome);
-
-//    uint8_t gPrediction = tournament_global_predict(); // global prediction
-//    uint8_t lPrediction = tournament_local_predict(pc); // local prediction
-//
-//    // Update choice predictor only if global & local predicts differently.
-//    if (gPrediction != lPrediction) {
-//        if (gPrediction == outcome) {
-//            // global(1) is correct, local(0) is incorrect
-//            choice_predictor_increment();
-//        } else {
-//            // local is correct, global is incorrect
-//            choice_predictor_decrement();
-//        }
-//    }
-//
-//    // Update global predictor
-//    two_bit_buffer_update(gHistoryRegister, outcome, gPredictionTable, gPredictionTableSize);
-//
-//    // Update local predictor
-//    // uint32_t lv1_index = pc & pcIndexMask;
-//    uint32_t lv1_index = pc % lHistoryTableSize;
-//    uint32_t lv2_index = lHistoryTable[lv1_index] % lPredictionTableSize;
-//    two_bit_buffer_update(lv2_index, outcome, lHistoryTable, lHistoryTableSize);
-//
     // Update local history
-    //uint32_t lhistory_old = lHistoryTable[lv1_index] & 7;
-//    lHistoryTable[l1_index] = ((lHistoryTable[l1_index] << 1) | outcome);
-    //uint32_t lhistory_updated = lHistoryTable[lv1_index] & 7;
-//
-    // update global history
-    //uint32_t ghistory_old = gHistoryRegister & 7;
-//    gHistoryRegister = ((gHistoryRegister << 1) | outcome);
-    //uint32_t ghistory_updated = gHistoryRegister & 7;
+    lHistoryTable[l1_index] <<= 1;
+    lHistoryTable[l1_index] |= outcome;
+
+    // Update global history
+    gHistoryRegister <<= 1;
+    gHistoryRegister |= outcome; // update global history
 }
 
 // custom

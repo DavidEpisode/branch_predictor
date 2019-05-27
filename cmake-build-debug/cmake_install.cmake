@@ -1,4 +1,4 @@
-# Install script for directory: /Users/xinmingzhang/Course/Computer Architecture/branch predictor
+# Install script for directory: /Users/chfang/Documents/branch_predictor
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -40,5 +40,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/Users/xinmingzhang/Course/Computer Architecture/branch predictor/cmake-build-debug/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/Users/chfang/Documents/branch_predictor/cmake-build-debug/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
