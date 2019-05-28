@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <math.h>
 #include "predictor.h"
+#include <string.h>
 
 //
 // TODO:Student Information
@@ -101,26 +102,30 @@ void one_bit_buffer_update(uint32_t pc, uint8_t outcome)
 }
 
 // two bit saturation counter update
-void two_bit_buffer_update(uint32_t pc, uint8_t outcome, uint32_t* branch_history_buffer, int buffer_size)
-{
-    int buffer_counter = pc % buffer_size;
-    switch (branch_history_buffer[buffer_counter])
+void two_bit_buffer_update0(uint32_t index, uint8_t outcome, uint32_t* branch_history_buffer) {
+    switch (branch_history_buffer[index])
     {
         case SN:
-            branch_history_buffer[buffer_counter] = outcome ? WN : SN;
+            branch_history_buffer[index] = outcome ? WN : SN;
             break;
         case WN:
-            branch_history_buffer[buffer_counter] = outcome ? WT : SN;
+            branch_history_buffer[index] = outcome ? WT : SN;
             break;
         case WT:
-            branch_history_buffer[buffer_counter] = outcome ? ST : WN;
+            branch_history_buffer[index] = outcome ? ST : WN;
             break;
         case ST:
-            branch_history_buffer[buffer_counter] = outcome ? ST : WT;
+            branch_history_buffer[index] = outcome ? ST : WT;
             break;
         default:
             break;
     }
+}
+
+void two_bit_buffer_update(uint32_t pc, uint8_t outcome, uint32_t* branch_history_buffer, int buffer_size)
+{
+    int buffer_counter = pc % buffer_size;
+    two_bit_buffer_update0(buffer_counter, outcome, branch_history_buffer);
 }
 // gshare
 void gshare_init(){
@@ -150,22 +155,6 @@ void gshare_train(uint32_t pc, uint8_t outcome)
 
     branch_history_register = branch_history_register<<1 | outcome;
 }
-
-
-// tournament
-// void choice_predictor_increment() {
-//     int index = gHistoryRegister % choicePredictionTableSize;
-//     if (choicePredictionTable[index] < 3) {
-//         choicePredictionTable[index] += 1;
-//     }
-// }
-
-// void choice_predictor_decrement() {
-//     int index = gHistoryRegister % choicePredictionTableSize;
-//     if (choicePredictionTable[index] > 0) {
-//         choicePredictionTable[index] -= 1;
-//     }
-// }
 
 // tournament
 // info: global hisotory, local history or PC
@@ -204,7 +193,7 @@ uint8_t action(uint32_t twoBitCounter) {
 }
 
 void tournament_init() {
-gHistoryRegister = 0;
+    gHistoryRegister = 0;
 
     // Two level local predictions
     // local level 1
@@ -564,6 +553,68 @@ void perceptron_train(uint32_t pc, uint8_t outcome){
     pc_buffer[pc % pc_buffer_size] = (l_buffer_counter<< 1 | outcome);
 }
 
+
+// bimodal
+// Use 11-bit in PC
+uint32_t * directionTableTaken;
+uint32_t * directionTableNTaken;
+int choiceMask;
+int directionMask;
+
+void bimode_init() {
+    ghistoryBits = 11;
+    pcIndexBits = 12;
+
+    choiceMask = (1 << pcIndexBits) - 1;
+    directionMask = (1 << ghistoryBits) - 1;
+
+    choicePredictionTableSize = (1 << pcIndexBits);
+    choicePredictionTable = (uint32_t *) malloc(choicePredictionTableSize * sizeof(uint32_t));
+
+    int directionTableSize = (1 << ghistoryBits);
+    directionTableTaken = (uint32_t *) malloc(directionTableSize * sizeof(uint32_t));
+    directionTableNTaken= (uint32_t *) malloc(directionTableSize * sizeof(uint32_t));
+    int i;
+    for (i = 0; i < directionTableSize; i++) {
+        directionTableTaken[i] = WT;
+        directionTableNTaken[i] = WN;
+    }
+}
+
+int bimode_predict(uint32_t pc) {
+    // Refer to choice predictor to select one direction.
+    int choice = choicePredictionTable[pc & choiceMask] & 0b11;
+    int directionIndex = (pc ^ gHistoryRegister) & directionMask;
+    int prediction;
+    if (choice == ST || choice == WT) { // taken
+        prediction = directionTableTaken[directionIndex];
+    } else { // not taken
+        prediction = directionTableNTaken[directionIndex];
+    }
+    return action(prediction);
+}
+
+void bimode_train(uint32_t pc, uint8_t outcome) {
+    int choiceIndex = pc & choiceMask;
+    int choice = choicePredictionTable[choiceIndex] & 0b11;
+    // Choice predictor is always updated with the branch outcome
+    two_bit_buffer_update0(choiceIndex, outcome, choicePredictionTable);
+
+    // Only the selected counter in direction predictor is updated
+    int directionIndex = (pc ^ gHistoryRegister) & directionMask;
+    if (choice == ST || choice == WT) { // taken
+        two_bit_buffer_update0(directionIndex, outcome, directionTableTaken);
+    } else { // not taken
+        two_bit_buffer_update0(directionIndex, outcome, directionTableNTaken);
+    }
+    // Update global history
+    gHistoryRegister <<= 1;
+    gHistoryRegister |= outcome;
+}
+
+
+
+
 // Initialize the predictor
 //
 void init_predictor()
@@ -581,7 +632,8 @@ void init_predictor()
             tournament_init();
             return;
         case CUSTOM:
-            perceptron_init();
+            //perceptron_init();
+            bimode_init();
             return;
         default:
             break;
@@ -608,7 +660,8 @@ make_prediction(uint32_t pc)
         case TOURNAMENT:
             return tournament_predict(pc);
         case CUSTOM:
-            return perceptron_predict(pc);
+            // perceptron_predict(pc);
+            return bimode_predict(pc);
         default:
             break;
     }
@@ -637,7 +690,8 @@ train_predictor(uint32_t pc, uint8_t outcome)
             tournament_train(pc, outcome);
             return;
         case CUSTOM:
-            perceptron_train(pc, outcome);
+            // perceptron_train(pc, outcome);
+            bimode_train(pc, outcome);
             return;
         default:
             break;
